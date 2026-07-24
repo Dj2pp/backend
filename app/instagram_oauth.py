@@ -96,6 +96,11 @@ def oauth_callback(
                 "code": code,
             },
         )
+        print("=" * 50)
+        print("TOKEN RESPONSE")
+        print(token_res.status_code)
+        print(token_res.text)
+
         if token_res.status_code != 200:
             return RedirectResponse(f"{settings.FRONTEND_URL}/dashboard?instagram=error")
         short_lived_token = token_res.json()["access_token"]
@@ -112,6 +117,11 @@ def oauth_callback(
         )
         long_lived_token = long_res.json().get("access_token", short_lived_token)
 
+        print("=" * 50)
+        print("LONG TOKEN")
+        print(long_res.status_code)
+        print(long_res.text)
+
         # 3. Find the Facebook Page this user manages, then the Instagram
         #    Business Account linked to that Page.
         pages_res = client.get(
@@ -119,6 +129,12 @@ def oauth_callback(
             params={"access_token": long_lived_token},
         )
         pages = pages_res.json().get("data", [])
+
+        print("=" * 50)
+        print("PAGES")
+        print(pages_res.status_code)
+        print(pages_res.text)
+        print("=" * 50)
 
         if not pages:
             return RedirectResponse(f"{settings.FRONTEND_URL}/dashboard?instagram=no_page")
@@ -128,6 +144,11 @@ def oauth_callback(
             f"{FACEBOOK_GRAPH}/{page['id']}",
             params={"fields": "instagram_business_account", "access_token": page["access_token"]},
         )
+
+        print("IG RESPONSE")
+        print(ig_res.status_code)
+        print(ig_res.text)
+
         ig_account = ig_res.json().get("instagram_business_account")
         if not ig_account:
             return RedirectResponse(f"{settings.FRONTEND_URL}/dashboard?instagram=not_business")
@@ -140,6 +161,11 @@ def oauth_callback(
             f"{FACEBOOK_GRAPH}/me",
             params={"access_token": long_lived_token},
         )
+
+        print("ME RESPONSE")
+        print(me_res.status_code)
+        print(me_res.text)
+
         facebook_user_id = me_res.json().get("id")
 
     # 5. Save the connection. We store the PAGE access token (not the user
