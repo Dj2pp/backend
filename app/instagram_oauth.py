@@ -39,7 +39,7 @@ FACEBOOK_GRAPH = "https://graph.facebook.com/v20.0"
 
 # Permissions needed to read the connected Page's Instagram account and
 # eventually send/receive DMs through it.
-SCOPES = "pages_show_list,instagram_basic,instagram_manage_messages,business_management"
+SCOPES = "pages_show_list,instagram_basic,instagram_manage_messages,business_management,pages_manage_metadata"
 
 
 def _make_state(user_id: str) -> str:
