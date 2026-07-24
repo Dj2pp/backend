@@ -1,0 +1,13 @@
+# Next.js
+am/node_modules/
+am/.next/
+am/out/
+am/.vercel/
+
+# Typescript
+am/*.tsbuildinfo
+
+# npm
+am/npm-debug.log*
+am/yarn-debug.log*
+am/yarn-error.log*
