@@ -119,6 +119,7 @@ def oauth_callback(
             params={"access_token": long_lived_token},
         )
         pages = pages_res.json().get("data", [])
+
         if not pages:
             return RedirectResponse(f"{settings.FRONTEND_URL}/dashboard?instagram=no_page")
 
