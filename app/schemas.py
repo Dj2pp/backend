@@ -15,21 +15,31 @@ from pydantic import BaseModel, Field, HttpUrl
 class CampaignCreate(BaseModel):
     """Shape of the JSON body expected on POST /api/campaigns."""
 
-    # min_length prevents someone submitting an empty trigger word that
-    # would match on every comment.
     trigger_word: str = Field(..., min_length=1, max_length=100)
-
-    # HttpUrl gives us free validation that this is actually a well-formed
-    # URL (must have a scheme like https://) before it ever touches the DB.
     destination_link: HttpUrl
+    message_template: str | None = Field(default=None, max_length=1000)
 
     class Config:
         json_schema_extra = {
             "example": {
                 "trigger_word": "PRICE",
                 "destination_link": "https://yourshop.com/pricing",
+                "message_template": "Hey! Here's our pricing page 👇",
             }
         }
+
+
+class CampaignUpdate(BaseModel):
+    """
+    Shape of the JSON body expected on PATCH /api/campaigns/{id}. Every
+    field is optional — the frontend sends only what actually changed,
+    and the endpoint only updates keys that were provided.
+    """
+
+    trigger_word: str | None = Field(default=None, min_length=1, max_length=100)
+    destination_link: HttpUrl | None = None
+    message_template: str | None = Field(default=None, max_length=1000)
+    is_active: bool | None = None
 
 
 class CampaignOut(BaseModel):
@@ -38,6 +48,7 @@ class CampaignOut(BaseModel):
     id: UUID
     trigger_word: str
     destination_link: str
+    message_template: str | None = None
     is_active: bool
     created_at: datetime
 
@@ -52,10 +63,8 @@ class InstagramWebhookPayload(BaseModel):
 
     commenter_username: str = Field(..., min_length=1)
     comment_text: str = Field(..., min_length=1)
-    # In a real Instagram payload this would be the Instagram Business
-    # Account ID tied to the post. We use it to figure out WHICH of your
-    # users this comment belongs to.
     recipient_account_id: str = Field(..., min_length=1)
+    commenter_igsid: str | None = None
 
 
 class WebhookResult(BaseModel):
@@ -63,22 +72,19 @@ class WebhookResult(BaseModel):
     matched_trigger: str | None = None
     dm_sent_to: str | None = None
     dms_sent_count: int | None = None
-
-
-class DailyTrendPoint(BaseModel):
-    """One day's worth of send volume, used to draw the dashboard chart."""
-
-    date: str  # ISO date, e.g. "2026-07-10"
-    count: int
+    dm_delivery: str | None = None
 
 
 class ActivityEvent(BaseModel):
-    """A single logged DM send, used for the dashboard's live activity feed."""
-
     id: UUID
-    commenter_username: str
     trigger_word: str
+    commenter_username: str
     sent_at: datetime
+
+
+class DailyTrendPoint(BaseModel):
+    date: str
+    count: int
 
 
 class AnalyticsOut(BaseModel):

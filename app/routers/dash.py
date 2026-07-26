@@ -15,6 +15,7 @@ from app.schemas import (
     CampaignCreate,
     CampaignOut,
     DailyTrendPoint,
+    CampaignUpdate
 )
 
 logger = logging.getLogger("dm_trigger_bot")
@@ -55,6 +56,7 @@ def create_campaign(
                 "user_id": user_id,
                 "trigger_word": payload.trigger_word.strip().lower(),
                 "destination_link": str(payload.destination_link),
+                "message_template": payload.message_template,
                 "is_active": True,
             }
         )
@@ -70,7 +72,40 @@ def create_campaign(
 
     return result.data[0]
 
+@router.patch("/api/campaigns/{campaign_id}", response_model=CampaignOut)
+def update_campaign(
+    campaign_id: str,
+    payload: CampaignUpdate,
+    user_id: str = Depends(verify_jwt_and_get_user_id),
+    db: Client = Depends(get_supabase_admin_client),
+):
+    updates = payload.model_dump(exclude_unset=True, exclude_none=True)
+    if "trigger_word" in updates:
+        updates["trigger_word"] = updates["trigger_word"].strip().lower()
+    if "destination_link" in updates:
+        updates["destination_link"] = str(updates["destination_link"])
 
+    if not updates:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No fields provided to update.",
+        )
+
+    result = (
+        db.table("campaigns")
+        .update(updates)
+        .eq("id", campaign_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+
+    if not result.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Campaign not found.",
+        )
+
+    return result.data[0]
 # GET /api/campaigns
 @router.get("/api/campaigns", response_model=List[CampaignOut])
 def list_campaigns(

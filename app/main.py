@@ -12,7 +12,7 @@ from supabase import Client
 
 from app.auth import verify_jwt_and_get_user_id
 from app.config import get_settings, get_supabase_admin_client
-from app.instagram_oauth import router as instagram_oauth_router
+from app.instagram_oauth import router as instagram_oauth_router, send_instagram_dm
 from app.routers.dash import router as dashboard_router  # IMPORT NEW ROUTER
 from app.schemas import InstagramWebhookPayload, WebhookResult
 
@@ -75,7 +75,9 @@ def _match_and_record(payload: InstagramWebhookPayload, db: Client) -> WebhookRe
     if not profile_res.data:
         return WebhookResult(status="ignored_unknown_account")
     user_id = profile_res.data["id"]
+    page_access_token = profile_res.data.get("instagram_access_token")
 
+   
     campaigns_res = (
         db.table("campaigns")
         .select("*")
@@ -107,13 +109,28 @@ def _match_and_record(payload: InstagramWebhookPayload, db: Client) -> WebhookRe
         return WebhookResult(
             status="limit_reached", matched_trigger=matched["trigger_word"]
         )
+    if payload.commenter_igsid and page_access_token:
+        message_text = matched.get("message_template") or (
+            f"Hey! 👋 Here's the link you asked for: {matched['destination_link']}"
+        )
+        delivered = send_instagram_dm(
+            recipient_igsid=payload.commenter_igsid,
+            message_text=message_text,
+            page_access_token=page_access_token,
+        )
+        dm_delivery = "sent" if delivered else "failed"
+    else:
+        dm_delivery = "skipped_no_recipient_id"
 
     return WebhookResult(
         status="dm_sent",
         matched_trigger=matched["trigger_word"],
         dm_sent_to=payload.commenter_username,
         dms_sent_count=new_count,
+        dm_delivery=dm_delivery,
     )
+
+    
 
 
 @app.post("/webhook", response_model=WebhookResult)
@@ -177,6 +194,7 @@ async def receive_instagram_webhook(
             value = change.get("value", {})
             comment_text = value.get("text")
             commenter_username = value.get("from", {}).get("username")
+            commenter_igsid = value.get("from", {}).get("id")
 
             if not (recipient_account_id and comment_text and commenter_username):
                 logger.warning("Skipping malformed webhook change: %s", change)
@@ -187,6 +205,7 @@ async def receive_instagram_webhook(
                     commenter_username=commenter_username,
                     comment_text=comment_text,
                     recipient_account_id=recipient_account_id,
+                    commenter_igsid=commenter_igsid,
                 )
                 result = _match_and_record(payload, db)
                 logger.info("Instagram webhook processed: %s", result.status)
