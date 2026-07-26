@@ -3,6 +3,25 @@ am/node_modules/
 am/.next/
 am/out/
 am/.vercel/
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+
+.venv/
+venv/
+env/
+ENV/
+
+# =========================
+# Python tools
+# =========================
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
 # Typescript
 am/*.tsbuildinfo
