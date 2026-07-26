@@ -191,6 +191,31 @@ def oauth_callback(
     # 5. Save the connection. We store the PAGE access token (not the user
     #    token) because that's what's used to send messages as the Page's
     #    connected Instagram account.
+    # 5. Check whether this Instagram account is already connected to a
+    #    DIFFERENT user before saving — without this, two Supabase accounts
+    #    could silently fight over the same Instagram connection, with
+    #    whoever connects last quietly overwriting the other's setup.
+    existing_res = (
+        db.table("profiles")
+        .select("id")
+        .eq("instagram_account_id", ig_account["id"])
+        .neq("id", user_id)
+        .maybe_single()
+        .execute()
+    )
+    if existing_res.data:
+        logger.info(
+            "Instagram account %s already connected to a different user (attempted by %s)",
+            ig_account["id"],
+            user_id,
+        )
+        return RedirectResponse(
+            f"{settings.FRONTEND_URL}/dashboard?instagram=already_connected"
+        )
+
+    # 6. Save the connection. We store the PAGE access token (not the user
+    #    token) because that's what's used to send messages as the Page's
+    #    connected Instagram account.
     db.table("profiles").update(
         {
             "instagram_account_id": ig_account["id"],
@@ -200,6 +225,7 @@ def oauth_callback(
     ).eq("id", user_id).execute()
 
     return RedirectResponse(f"{settings.FRONTEND_URL}/dashboard?instagram=connected")
+    
 
 
 @router.delete("/disconnect", status_code=status.HTTP_200_OK)
