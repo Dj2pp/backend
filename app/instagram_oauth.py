@@ -171,7 +171,7 @@ def oauth_callback(
                 sub_res = client.post(
                     f"{FACEBOOK_GRAPH}/{page['id']}/subscribed_apps",
                     params={
-                        "subscribed_fields": "comments",
+                        "subscribed_fields": "feed",
                         "access_token": page["access_token"],
                     },
                 )
@@ -226,7 +226,6 @@ def oauth_callback(
 
     return RedirectResponse(f"{settings.FRONTEND_URL}/dashboard?instagram=connected")
     
-
 
 @router.delete("/disconnect", status_code=status.HTTP_200_OK)
 def disconnect_instagram(
