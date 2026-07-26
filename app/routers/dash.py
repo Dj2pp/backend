@@ -1,4 +1,3 @@
-# app/routers/dashboard.py
 import logging
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -42,7 +41,6 @@ def format_relative_time(iso_timestamp: str) -> str:
     return f"{days}d ago"
 
 
-# POST /api/campaigns (Note: fixed route path to match decorator)
 @router.post("/api/campaigns", response_model=CampaignOut, status_code=status.HTTP_201_CREATED)
 def create_campaign(
     payload: CampaignCreate,
@@ -71,6 +69,7 @@ def create_campaign(
         )
 
     return result.data[0]
+
 
 @router.patch("/api/campaigns/{campaign_id}", response_model=CampaignOut)
 def update_campaign(
@@ -106,6 +105,35 @@ def update_campaign(
         )
 
     return result.data[0]
+
+
+@router.delete("/api/campaigns/{campaign_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_campaign(
+    campaign_id: str,
+    user_id: str = Depends(verify_jwt_and_get_user_id),
+    db: Client = Depends(get_supabase_admin_client),
+):
+    """
+    Deletes a single trigger word. Scoped with .eq("user_id", user_id) in
+    the same query as the delete itself — this is what stops user A from
+    deleting user B's campaign just by guessing/reusing an id, since the
+    delete only matches a row that's both this id AND owned by the caller.
+    """
+    result = (
+        db.table("campaigns")
+        .delete()
+        .eq("id", campaign_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+
+    if not result.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Campaign not found.",
+        )
+
+
 # GET /api/campaigns
 @router.get("/api/campaigns", response_model=List[CampaignOut])
 def list_campaigns(
