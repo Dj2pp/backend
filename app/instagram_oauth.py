@@ -54,7 +54,7 @@ FACEBOOK_GRAPH = "https://graph.facebook.com/v20.0"
 # business_management / pages_manage_metadata were removed: neither is
 # called anywhere here, and pages_manage_metadata specifically triggers
 # an "Invalid Scopes" error in Development Mode without App Review.
-SCOPES = "pages_show_list,instagram_basic,instagram_manage_messages"
+SCOPES = "pages_show_list,instagram_basic,instagram_manage_messages,pages_manage_metadata"
 
 
 def _make_state(user_id: str) -> str:
@@ -158,6 +158,30 @@ def oauth_callback(
                 params={"access_token": long_lived_token},
             )
             facebook_user_id = me_res.json().get("id")
+
+            # 5. Subscribe this specific Page to send webhook events to our
+            #    app. Without this call, Meta never actually sends events —
+            #    toggling "Subscribe" on the comments field in the App
+            #    Dashboard only prepares your app to RECEIVE events IF a
+            #    Page is subscribed; it doesn't subscribe any Page on its
+            #    own. Wrapped in its own try so a hiccup here doesn't break
+            #    the whole connect flow — worst case, comments just won't
+            #    trigger until this is retried.
+            try:
+                sub_res = client.post(
+                    f"{FACEBOOK_GRAPH}/{page['id']}/subscribed_apps",
+                    params={
+                        "subscribed_fields": "comments",
+                        "access_token": page["access_token"],
+                    },
+                )
+                logger.info(
+                    "Page webhook subscription result: %s %s",
+                    sub_res.status_code,
+                    sub_res.text,
+                )
+            except httpx.HTTPError:
+                logger.exception("Failed to subscribe Page %s to webhooks", page["id"])
     except httpx.HTTPError:
         # Network hiccup talking to Facebook — fail gracefully instead of a
         # raw 500, since this is a user-facing redirect flow.
