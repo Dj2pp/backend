@@ -54,7 +54,7 @@ FACEBOOK_GRAPH = "https://graph.facebook.com/v20.0"
 # business_management / pages_manage_metadata were removed: neither is
 # called anywhere here, and pages_manage_metadata specifically triggers
 # an "Invalid Scopes" error in Development Mode without App Review.
-SCOPES = "pages_show_list,instagram_basic,instagram_manage_messages,pages_manage_metadata"
+SCOPES = "pages_show_list,instagram_basic,instagram_manage_messages"
 
 
 def _make_state(user_id: str) -> str:
