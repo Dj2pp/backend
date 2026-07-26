@@ -200,7 +200,7 @@ def oauth_callback(
         .select("id")
         .eq("instagram_account_id", ig_account["id"])
         .neq("id", user_id)
-        .maybe_single()
+        .limit(1)
         .execute()
     )
     if existing_res.data:
