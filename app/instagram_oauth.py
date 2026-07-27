@@ -3,25 +3,22 @@
 # -----------------------------------------------------------------------------
 # Rebuilt on "Instagram API with Instagram Login" instead of Facebook Login
 # for Business. The account logs into Instagram directly — no Facebook Page,
-# no /me/accounts lookup, no pages_manage_metadata permission fight. This is
-# exactly the product configured on the App Dashboard's "Instagram Business"
-# use case page (the one showing Instagram accounts + Generate token +
-# Webhook Subscription toggle directly, with no Page anywhere in sight).
+# no /me/accounts lookup, no pages_manage_metadata permission fight.
 #
 #   GET /api/instagram/oauth/start-url   (protected)
 #   GET /api/instagram/oauth/callback    (public — Instagram redirects here)
 #   DELETE /api/instagram/oauth/disconnect  (protected)
+#   GET /api/instagram/oauth/webhook     (public — Meta verification)
+#   POST /api/instagram/oauth/webhook    (public — Meta event delivery)
 #   send_instagram_dm(...)
-#
-# Same signed-state reasoning as before: state must be unforgeable, or
-# someone could hijack another user's connection via a crafted callback URL.
 # =============================================================================
 import logging
 import time
+from urllib.parse import urlencode
 
 import httpx
 import jwt as pyjwt
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
 from supabase import Client
 
@@ -34,15 +31,11 @@ router = APIRouter(prefix="/api/instagram/oauth", tags=["instagram-oauth"])
 
 # Note the different hosts: authorization + short-lived token exchange use
 # api.instagram.com, everything AFTER you have a token uses graph.instagram.com.
-# Mixing these up is a common source of "Cannot parse access token" errors.
 INSTAGRAM_OAUTH_DIALOG = "https://api.instagram.com/oauth/authorize"
 INSTAGRAM_TOKEN_EXCHANGE = "https://api.instagram.com/oauth/access_token"
 INSTAGRAM_LONG_LIVED_EXCHANGE = "https://graph.instagram.com/access_token"
 INSTAGRAM_GRAPH = "https://graph.instagram.com/v21.0"
 
-# instagram_business_basic: read the account's own profile/ID.
-# instagram_business_manage_messages: send/receive DMs — the permission
-# that actually matters for this product.
 SCOPES = "instagram_business_basic,instagram_business_manage_messages"
 
 
@@ -70,14 +63,15 @@ def get_start_url(user_id: str = Depends(verify_jwt_and_get_user_id)):
     state = _make_state(user_id)
 
     params = {
-        "client_id": settings.FACEBOOK_APP_ID,  # this is your Instagram App ID from the same App Dashboard
+        "client_id": settings.FACEBOOK_APP_ID,  # Instagram App ID, same App Dashboard
         "redirect_uri": settings.INSTAGRAM_REDIRECT_URI,
         "state": state,
         "scope": SCOPES,
         "response_type": "code",
     }
-    query = "&".join(f"{k}={httpx.QueryParams({k: v})[k]}" for k, v in params.items())
-    return {"url": f"{INSTAGRAM_OAUTH_DIALOG}?{query}"}
+    # urlencode handles percent-encoding correctly and is much clearer
+    # than round-tripping through httpx.QueryParams one key at a time.
+    return {"url": f"{INSTAGRAM_OAUTH_DIALOG}?{urlencode(params)}"}
 
 
 @router.get("/callback")
@@ -91,8 +85,7 @@ def oauth_callback(
 
     try:
         with httpx.Client(timeout=10) as client:
-            # 1. Exchange the code for a short-lived token. Note this is a
-            #    POST with form data, not query params like Facebook's flow.
+            # 1. Exchange the code for a short-lived token.
             token_res = client.post(
                 INSTAGRAM_TOKEN_EXCHANGE,
                 data={
@@ -108,10 +101,14 @@ def oauth_callback(
                 return RedirectResponse(f"{settings.FRONTEND_URL}/dashboard?instagram=error")
 
             token_data = token_res.json()
-            short_lived_token = token_data["access_token"]
-            # This IS the Instagram Business Account's own ID — no Page
-            # lookup step needed at all, unlike the old Facebook Login flow.
-            ig_account_id = str(token_data["user_id"])
+            try:
+                short_lived_token = token_data["access_token"]
+                ig_account_id = str(token_data["user_id"])
+            except KeyError:
+                logger.error(
+                    "Instagram token response missing expected fields: %s", token_data
+                )
+                return RedirectResponse(f"{settings.FRONTEND_URL}/dashboard?instagram=error")
 
             # 2. Exchange for a long-lived token (60 days instead of ~1 hour).
             long_res = client.get(
@@ -122,7 +119,18 @@ def oauth_callback(
                     "access_token": short_lived_token,
                 },
             )
-            long_lived_token = long_res.json().get("access_token", short_lived_token)
+            if long_res.status_code != 200:
+                # Don't silently fall back — a short-lived token expires in
+                # ~1hr, so DM sends would start failing later with no clue
+                # why. Fail loudly instead so it gets noticed and retried.
+                logger.error(
+                    "Instagram long-lived token exchange failed for user %s: %s",
+                    user_id,
+                    long_res.text,
+                )
+                return RedirectResponse(f"{settings.FRONTEND_URL}/dashboard?instagram=error")
+
+            long_lived_token = long_res.json()["access_token"]
 
     except httpx.HTTPError:
         logger.exception("Network error during Instagram OAuth callback for user %s", user_id)
@@ -154,9 +162,8 @@ def oauth_callback(
     # login flow never involves a Facebook account at all, so there's no
     # such ID to save. This means Meta's Data Deletion Callback (which
     # matches on facebook_user_id) won't find accounts connected through
-    # this flow. That's a known gap to revisit before real users rely on
-    # it — for now the in-app "Delete my account" button still works fine
-    # regardless, since that one matches on the logged-in user directly.
+    # this flow. Known gap to revisit before real users rely on it — the
+    # in-app "Delete my account" button still works fine regardless.
     try:
         db.table("profiles").update(
             {
@@ -200,7 +207,7 @@ def send_instagram_dm(recipient_igsid: str, message_text: str, page_access_token
     using the Instagram access token saved during the OAuth callback above.
     `page_access_token` is a holdover parameter name from the old Facebook
     flow — with Instagram Login, it's really just "the Instagram account's
-    own access token," but kept as-is so app/main.py doesn't need changes.
+    own access token," kept as-is so app/main.py doesn't need changes.
     """
     try:
         with httpx.Client(timeout=10) as client:
@@ -224,3 +231,29 @@ def send_instagram_dm(recipient_igsid: str, message_text: str, page_access_token
     except httpx.HTTPError:
         logger.exception("Network error sending Instagram DM to %s", recipient_igsid)
         return False
+
+
+@router.get("/webhook")
+def verify_webhook(
+    hub_mode: str = Query(None, alias="hub.mode"),
+    hub_challenge: str = Query(None, alias="hub.challenge"),
+    hub_verify_token: str = Query(None, alias="hub.verify_token"),
+):
+    settings = get_settings()
+    # Pulled from settings instead of hardcoded — keeps it out of source
+    # control and lets it differ between dev/staging/prod.
+    verify_token = settings.INSTAGRAM_WEBHOOK_VERIFY_TOKEN
+
+    if hub_mode == "subscribe" and hub_verify_token == verify_token:
+        logger.info("Webhook verified successfully!")
+        return int(hub_challenge)
+
+    raise HTTPException(status_code=403, detail="Verification token mismatch")
+
+
+@router.post("/webhook")
+async def receive_webhook_event(request: Request):
+    data = await request.json()
+    logger.info("Received Instagram Webhook Event: %s", data)
+    # Process DM / comment event here
+    return {"status": "ok"}
