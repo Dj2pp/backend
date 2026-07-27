@@ -253,7 +253,53 @@ def verify_webhook(
 
 @router.post("/webhook")
 async def receive_webhook_event(request: Request):
-    data = await request.json()
-    logger.info("Received Instagram Webhook Event: %s", data)
-    # Process DM / comment event here
+    """
+    Real Instagram webhook delivery. Unpacks Meta's entry[].changes[]
+    envelope and hands comment events to the same matching logic used
+    by the /webhook simulation endpoint in main.py. Always returns 200
+    quickly — Meta retries aggressively on non-2xx responses.
+    """
+    # Deferred import to avoid a circular import: main.py imports this
+    # router at module load time, so importing main.py back at THIS
+    # module's load time would deadlock. Importing inside the function
+    # body only runs once a request actually comes in, by which point
+    # both modules are already fully loaded.
+    from app.main import _match_and_record
+    from app.schemas import InstagramWebhookPayload
+    from app.config import get_supabase_admin_client as _get_db
+
+    body = await request.json()
+    logger.info("Received Instagram Webhook Event: %s", body)
+
+    db = _get_db()
+
+    for entry in body.get("entry", []):
+        recipient_account_id = entry.get("id")
+        for change in entry.get("changes", []):
+            # Only comment events matter for trigger-word matching — skip
+            # everything else (message_seen, message reactions, etc.)
+            if change.get("field") != "comments":
+                continue
+
+            value = change.get("value", {})
+            comment_text = value.get("text")
+            commenter_username = value.get("from", {}).get("username")
+            commenter_igsid = value.get("from", {}).get("id")
+
+            if not (recipient_account_id and comment_text and commenter_username):
+                logger.warning("Skipping malformed webhook change: %s", change)
+                continue
+
+            try:
+                payload = InstagramWebhookPayload(
+                    commenter_username=commenter_username,
+                    comment_text=comment_text,
+                    recipient_account_id=recipient_account_id,
+                    commenter_igsid=commenter_igsid,
+                )
+                result = _match_and_record(payload, db)
+                logger.info("Instagram webhook processed: %s", result.status)
+            except Exception:
+                logger.exception("Failed to process Instagram webhook change")
+
     return {"status": "ok"}
