@@ -45,7 +45,7 @@ class Settings:
     # buried in route logic, so it's obvious where to change it later
     # (e.g. when you add a paid tier with a higher/no limit).
     FREE_TIER_DM_LIMIT: int = 100
-    WEBHOOK_SECRET: str = os.environ["WEBHOOK_SECRET"]
+    
 
     # Instagram DMs are sent via the Instagram Graph API, which is reached
     # through a Facebook Login for Business OAuth flow (Instagram's own
