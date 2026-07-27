@@ -58,6 +58,7 @@ class Settings:
     INSTAGRAM_REDIRECT_URI: str = os.environ["INSTAGRAM_REDIRECT_URI"]
     # Used only to sign the short-lived `state` param (CSRF protection for
     # the OAuth redirect) — separate from the Supabase JWT verification.
+    OAUTH_STATE_SECRET: str = os.environ["OAUTH_STATE_SECRET"]
     INSTAGRAM_WEBHOOK_VERIFY_TOKEN: str = os.environ["INSTAGRAM_WEBHOOK_VERIFY_TOKEN"]
     FRONTEND_URL: str = os.environ.get("FRONTEND_URL", "https://dm-coral-chi.vercel.app")
 
